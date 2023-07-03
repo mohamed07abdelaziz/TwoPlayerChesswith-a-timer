@@ -1,0 +1,235 @@
+	include utility.inc
+	.MODEL SMALL
+	.STACK 64
+	.DATA	 
+		SPLIT DB '-------------------- Thank You For Choosing Our Service :) --------------------', '$'
+		BYE DB 'See You Soon', '$'
+		SPACE DB ' ', '$'
+		CHAR DB '$', '$'
+		;SENDMES DB ?, '$'
+		RESCHAR DB '$', '$'
+		X1 DB 00H
+		Y1 DB 00H
+		EX1 DB 00H
+		EY1 DB 00H
+		X2 DB 00H
+		Y2 DB 0DH
+		EX2 DB 00H
+		EY2 DB 0CH
+	.CODE
+	MAIN PROC FAR
+		MOV AX, @DATA
+		MOV DS, AX
+		
+		CALL INITIALIZEUART
+		CALL CLEAR
+		CURSOR 0, 0
+		
+		CURSOR 00H, 0CH
+		MOV SI, OFFSET SPLIT
+		CALL DISPLAYMESSAGE
+		
+		CURSOR 0, 0
+		
+		
+		
+		;MAIN LOOP ==> Infinite LOOP as long as the program is running
+		CHECKCHAT:
+			MOV RESCHAR, '$'
+			;We have two possibilities: 1) Sending 2) Recieve
+			MOV AH, 1;get key pressed function (don't wait)
+			INT 16H  ;execute
+			JNZ SEND ;Ther is a key pressed = sending a message or closing chat
+			JMP RES  ;No key pressed then recieving a message
+			
+			SEND:
+				MOV AH, 0 ;get key pressed function (wait)
+				INT 16H   ;execute
+				
+				CMP AH, 1CH ;ENTER key
+				JZ ENT
+				
+				CMP AL, 27 ;ESC key
+				JZ ESCAHELPER
+				
+				CMP AL, 08 ;BACKSPACE
+				JZ BACKSPACE
+				
+				MOV CHAR, AL
+				CURSOR X1, Y1
+				MOV SI, OFFSET CHAR
+				CALL DISPLAYMESSAGE
+				SENDING CHAR
+				
+				INC X1
+				CMP X1, 80
+				JE COLOVERFLOWHELPER
+				BACKSEND:
+				JMP RES
+			
+			
+			ENT:        
+				MOV X1, 0
+				ADD Y1, 1
+				CMP Y1, 12
+				JE NEWLINE1
+				CONT_SE:
+				CURSOR X1, Y1
+				SENDING 0CH
+				JMP ENDSEND
+				
+			ESCAHELPER:
+				CALL ESCA
+			COLOVERFLOWHELPER:
+				JMP COLOVERFLOW
+			BACKSPACE:
+				CURSOR X1, Y1
+				MOV SI, OFFSET SPACE
+				CALL DISPLAYMESSAGE
+				DEC X1
+				CURSOR X1, Y1
+				SENDING SPACE
+				JMP ENDSEND
+			
+			JMPCHECKCHAT:
+				JMP CHECKCHAT	
+			
+			NEWLINE1:
+				SCROLL 0, 0, 79, 11
+				MOV Y1, 11
+				JMP CONT_SE
+				
+			COLOVERFLOW:
+				MOV X1, 0
+				INC Y1
+				CMP Y1, 12
+				JE ROWOVERFLOW
+				BACKCOLOVERFLOW:
+				JMP BACKSEND
+			ROWOVERFLOW:
+				SCROLL 0, 0, 79, 11
+				MOV Y1, 11
+				JMP BACKCOLOVERFLOW
+			
+
+			ENDSEND:
+			RES:
+				RECEIVING RESCHAR
+				CMP RESCHAR, '$'
+				JE JMPCHECKCHAT
+				
+				CMP RESCHAR, 0CH
+				JE ENTRES
+				
+				CMP RESCHAR, 32
+				JE BACKSPACERES
+				
+				CURSOR X2, Y2
+				MOV SI, OFFSET RESCHAR
+				CALL DISPLAYMESSAGE
+				INC X2
+				CMP X2, 80
+				JE COLOVERFLOWRES
+				BACKSENDRES:
+				JMP JMPCHECKCHAT
+				
+			ENTRES:        
+				MOV X2, 0
+				ADD Y2, 1
+				CMP Y2, 24
+				JE NEWLINE2
+				CONT_RES:
+				CURSOR X2, Y2
+				JMP JMPCHECKCHAT
+				
+			BACKSPACERES:
+				CURSOR X2, Y2
+				MOV SI, OFFSET SPACE
+				CALL DISPLAYMESSAGE
+				DEC X2
+				CURSOR X2, Y2
+				JMP JMPCHECKCHAT
+				
+			NEWLINE2:
+				SCROLL 0, 0DH, 79, 24
+				CURSOR 0, 12
+				MOV SI, OFFSET SPLIT
+				CALL DISPLAYMESSAGE
+				MOV Y2, 23
+				JMP CONT_RES
+				
+			COLOVERFLOWRES:
+				MOV X2, 0
+				INC Y2
+				CMP Y2, 24
+				JE ROWOVERFLOWRES
+				COLOVERFLOWRESBACK:
+				JMP BACKSENDRES
+				
+			ROWOVERFLOWRES:
+				SCROLL 0, 0DH, 79, 24
+				CURSOR 0, 12
+				MOV SI, OFFSET SPLIT
+				CALL DISPLAYMESSAGE
+				MOV Y2, 23
+				JMP COLOVERFLOWRESBACK
+	
+		JMP CHECKCHAT
+		
+		
+		HLT
+	MAIN ENDP
+	
+	INITIALIZEUART PROC NEAR
+		;SET DIVISOR LATCH ACCESS BIT
+		MOV DX,3FBH 			; LINE CONTROL REGISTER
+		MOV AL,10000000B		;SET DIVISOR LATCH ACCESS BIT
+		OUT DX,AL				;OUT IT
+
+		;SET LSB BYTE OF THE BAUD RATE DIVISOR LATCH REGISTER.
+		MOV DX,3F8H			
+		MOV AL,0CH			
+		OUT DX,AL
+
+		;SET MSB BYTE OF THE BAUD RATE DIVISOR LATCH REGISTER.
+		MOV DX,3F9H
+		MOV AL,00H
+		OUT DX,AL
+
+		;SET PORT CONFIGURATION
+		MOV DX,3FBH
+		MOV AL,00011011B
+			;0:ACCESS TO RECEIVER BUFFER, TRANSMITTER BUFFER
+			;0:SET BREAK DISABLED
+			;011:EVEN PARITY
+			;0:ONE STOP BIT
+			;11:8BITS
+		OUT DX,AL
+		RET
+	INITIALIZEUART ENDP
+	
+	CLEAR PROC NEAR
+		MOV AX, 0600h    ; Scroll up function
+		XOR CX, CX     ; Upper left corner CH=row, CL=column
+		MOV DX, 184FH  ; lower right corner DH=row, DL=column
+		MOV BH, 07    
+		INT 10H
+		RET
+	CLEAR ENDP
+	
+	
+	DISPLAYMESSAGE PROC NEAR
+		MOV AH, 9		;Display string function
+		MOV DX, SI		;offset of the string
+		INT 21H			;execute
+		RET
+	DISPLAYMESSAGE ENDP
+	
+	ESCA PROC NEAR
+		CALL CLEAR
+		CURSOR 0, 0
+		MOV SI, OFFSET BYE
+		CALL DISPLAYMESSAGE
+	ESCA ENDP
+			
+	END MAIN
